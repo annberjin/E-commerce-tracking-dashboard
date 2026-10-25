@@ -1,0 +1,122 @@
+Database implementation verification: October 24, 2026
+MySQL 8.4.13; Python 3.12; MySQL Connector/Python 9.6.0.
+Source was tested with local Git tags, not a published GitHub release.
+46 database integration checks, 10 build safety checks, and all 56 live column definitions passed.
+HTTP/UI security, server crash recovery, backup restoration and larger performance acceptance tests have not been executed.
+
+2026-10-24T18:32:44.862674+00:00 | START tag=review-7 database=ect_review7
+2026-10-24T18:32:44.980766+00:00 | MySQL server=8.4.13; client=mysql  Ver 8.4.13 for Linux on x86_64 (MySQL Community Server - GPL)
+2026-10-24T18:32:45.209522+00:00 | Verified tag=review-7 commit=4fe686e9d2608c8410d13c50eb5bb976e5bbf13b
+2026-10-24T18:32:45.464288+00:00 | START database/00_create_database.sql
+2026-10-24T18:32:45.574940+00:00 | PASS database/00_create_database.sql
+2026-10-24T18:32:45.575012+00:00 | START database/01_schema/010_reference_tables.sql
+2026-10-24T18:32:45.661953+00:00 | PASS database/01_schema/010_reference_tables.sql
+2026-10-24T18:32:45.662025+00:00 | START database/01_schema/020_core_tables.sql
+2026-10-24T18:32:45.770478+00:00 | PASS database/01_schema/020_core_tables.sql
+2026-10-24T18:32:45.770657+00:00 | START database/01_schema/030_relationship_tables.sql
+2026-10-24T18:32:45.922825+00:00 | PASS database/01_schema/030_relationship_tables.sql
+2026-10-24T18:32:45.922909+00:00 | START database/02_programmability/010_views.sql
+2026-10-24T18:32:46.012308+00:00 | PASS database/02_programmability/010_views.sql
+2026-10-24T18:32:46.012389+00:00 | START database/02_programmability/030_procedures.sql
+2026-10-24T18:32:46.116319+00:00 | PASS database/02_programmability/030_procedures.sql
+2026-10-24T18:32:46.116395+00:00 | START database/02_programmability/040_triggers.sql
+2026-10-24T18:32:46.195470+00:00 | PASS database/02_programmability/040_triggers.sql
+2026-10-24T18:32:46.195679+00:00 | START database/03_security/010_grants.sql
+2026-10-24T18:32:46.360569+00:00 | PASS database/03_security/010_grants.sql
+2026-10-24T18:32:46.360660+00:00 | START database/04_seed/010_reference_data.sql
+2026-10-24T18:32:46.459533+00:00 | PASS database/04_seed/010_reference_data.sql
+2026-10-24T18:32:46.459809+00:00 | START database/04_seed/020_sample_data.sql
+2026-10-24T18:32:46.591128+00:00 | 2
+3
+4
+5
+1
+2
+3
+0	20	0
+0	20	0
+0	3	0
+1	55.00	PENDING	0
+1	READY_TO_SHIP
+1	SHIPPED
+2	40.00	PENDING	0
+2	READY_TO_SHIP
+2	SHIPPED
+2026-10-24T18:32:46.637648+00:00 | PASS database/04_seed/020_sample_data.sql
+2026-10-24T18:32:46.637805+00:00 | START database/05_validation/010_object_validation.sql
+2026-10-24T18:32:46.813389+00:00 | Object validation passed
+2026-10-24T18:32:46.844483+00:00 | PASS database/05_validation/010_object_validation.sql
+2026-10-24T18:32:46.844580+00:00 | START database/05_validation/020_data_validation.sql
+2026-10-24T18:32:46.915421+00:00 | Data validation passed
+2026-10-24T18:32:46.954487+00:00 | PASS database/05_validation/020_data_validation.sql
+2026-10-24T18:32:46.954574+00:00 | START database/05_validation/030_smoke_tests.sql
+2026-10-24T18:32:47.010337+00:00 | 1	SHIPPED	55.00
+2	SHIPPED	40.00
+3	PLOW	Cable	3	3
+2026-10	2	95.00
+1	SIMPLE	OrderHeader	NULL	ref	uq_orderheader_submissionreference,ix_order_customer_time	ix_order_customer_time	4	const	1	100.00	Backward index scan
+Smoke tests passed
+2026-10-24T18:32:47.042367+00:00 | PASS database/05_validation/030_smoke_tests.sql
+2026-10-24T18:32:47.042452+00:00 | BUILD SUCCEEDED; application database user=ect_review7_app; role=ect_review7_app_runtime
+2026-10-24T18:32:47.042470+00:00 | Log file: .build-work/20261024T183244Z-9319130a/build.log
+PASS Fresh seed: five accounts, two shipped orders, $95
+PASS T-31 runtime direct update denied
+PASS T-31 runtime audit deletion denied
+PASS T-31 private helper execute denied
+PASS T-07 administrator cannot adjust stock
+PASS T-03 normalized duplicate product code
+PASS T-11 overprecision price
+PASS T-11 fractional stock adjustment
+PASS T-05 invalid boolean
+PASS T-04 blank product name
+PASS T-05 overlength text
+PASS T-17/T-33 adjustment replay is unchanged
+PASS T-34 changed adjustment reference
+PASS T-34 NULL product cannot replay adjustment
+PASS T-35 adjustment reference is scoped
+PASS T-18 negative stock
+PASS T-12 empty order
+PASS T-13 duplicate product
+PASS T-11 fractional quantity
+PASS T-14/T-19 later line failure
+PASS T-19 entire failed order and audits rolled back
+PASS T-10 accepted $55 order
+PASS T-15/T-33 replay uses accepted price and unordered lines
+PASS T-34 changed order reference
+PASS T-22 skip readiness
+PASS T-25 early dispatch timestamp
+PASS T-23 trigger ships without stock change
+PASS T-24 duplicate shipment
+PASS T-28 shipped cancellation
+PASS T-29 tracking correction retains dispatch time
+PASS T-26 cancellation restores stock
+PASS T-27 repeat cancellation
+PASS T-27 no repeated stock/audit change
+PASS T-20 audit failure
+PASS T-20 audit failure rolls back business data
+PASS T-36 failed reference can be retried
+PASS T-37 competing orders cannot oversell
+PASS T-39 dispatch and cancellation serialize
+PASS T-32 session termination rolls back stock and audit
+PASS T-01 primary key
+PASS T-02 foreign key
+PASS T-04 NOT NULL
+PASS T-05 CHECK
+PASS T-08 inactive staff cannot mutate
+PASS Activation audit uses normalized boolean
+PASS Final required-child and shipment consistency
+46 checks passed on MySQL 8.4.13
+PASS T-48 existing database protected
+PASS T-48 requested tag accepted among aliases
+PASS T-48 missing tag
+PASS T-48 empty manifest
+PASS T-48 duplicate manifest
+PASS T-48 order manifest
+PASS T-48 traversal manifest
+PASS T-48 missing script
+PASS T-48 SQL failure stops build with diagnostic
+Partial failed build retained for inspection: bt_a08c1c4b9609
+PASS T-48 initial setup failure logged
+Partial failed build retained for inspection: bt_127885068bb9
+10 build safety checks passed
+PASS all 56 live columns/types/nullability match approved schema

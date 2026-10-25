@@ -7,8 +7,8 @@
 | Project title | E-commerce Order Tracking Dashboard |
 | Prepared by | Bernardo Xie He & Henry Zhou |
 | Course | 01:198:437:01 |
-| Date | October 3, 2026 |
-| Version | 1.3 |
+| Date | October 19, 2026 |
+| Version | 1.7 |
 | Repository | https://github.com/annberjin/E-commerce-tracking-dashboard |
 
 ## 2. Business Problem and Project Purpose
@@ -71,7 +71,7 @@ The system will enforce stock availability, permitted status changes, and role-b
 | FR-02 | The system will allow an administrator to create accounts with one permitted role, maintain names and contact details, and activate or deactivate accounts. Creating a customer account will also create its profile. All changes will be audited. | Administrator |
 | FR-03 | The system will allow staff to create, update, or deactivate products with a unique code, name, current price, and low-stock threshold. Customers will be able to view active products and their prices and availability. Inactive products will remain in historical orders. | Staff, Customer |
 | FR-04 | The system will allow staff to adjust a product's stock under BR-06 and BR-16. The system will record the reason for the adjustment, the adjustment reference, and the quantities before and after the adjustment. Staff will be able to retrieve their own adjustment results by reference. | Staff |
-| FR-05 | The system will accept valid customer orders with delivery details, a submission reference, and one or more distinct product lines. It will store the accepted quantities and prices, the address, and the initial pending status. It will also reduce the available stock and record the merchandise value and return the order reference. | Customer |
+| FR-05 | The system will accept valid customer orders with delivery details, a submission reference, and one or more distinct product lines. It will store the accepted quantities and prices, the address, and the initial pending status. It will also reduce the available stock, calculate the merchandise value from accepted order lines under BR-05, and return the order reference. | Customer |
 | FR-06 | The system will allow customers to view their order list, line details, merchandise value, status timeline, and shipment tracking, if available. | Customer |
 | FR-07 | The system will allow staff to list and filter orders by status. They will also be able to retrieve an order by reference and access its customer and delivery details, lines, current status, and shipment information. | Staff |
 | FR-08 | The system will allow staff to move an order from "Pending" to "Ready to Ship," recording the user and time. Other preparation transitions will be rejected. | Staff |
@@ -86,7 +86,7 @@ The system will enforce stock availability, permitted status changes, and role-b
 | FR-17 | The system will provide the low-stock list defined in RQ-02. | Staff, Administrator |
 | FR-18 | The system will provide an online interface for authorized operations and reports. This interface will include confirmation messages for successful operations and clear validation or service unavailability messages. | All roles |
 | FR-19 | Following an unexpected database shutdown or power outage, the system will preserve committed business transactions and audit records, and eliminate the effects of incomplete transactions under Section 9.3. | System |
-| FR-20 | The system should accurately report database unavailability and unconfirmed transaction results. After reconnection, authorized users should be able to view saved results and retry without creating duplicate orders, stock, or shipments. | All roles |
+| FR-20 | The system shall accurately report database unavailability and unconfirmed transaction results. After reconnection, authorized users shall be able to view saved results and retry without creating duplicate orders, stock, or shipments. | All roles |
 | FR-21 | An authorized maintainer shall be able to create a consistent backup of the schema, business data, and audit history, store a protected copy separately, and verify restoration into an empty database under Section 9.3. | Authorized maintainer |
 
 ## 6. Transaction Flows and Use Cases
@@ -99,7 +99,7 @@ Actor/Trigger: Customer submits the order entry form.
 Preconditions: Active customer account/profile, required delivery details, product quantities, and submission reference supplied.
 Related requirements: FR-05, FR-12, FR-13, and FR-14.
 
-1. Verify the customer's identity and reject any submission reference that has already been used under BR-16.
+1. Verify the customer's identity and current authorization. If the submission reference already has a committed result, return that result for matching request content or reject changed content as a reference conflict under BR-16; do not continue with steps 2–5. Resolve an uncertain earlier attempt under BR-21 before applying new changes.
 2. Validate all lines, delivery fields, active products, and current stock. Obtain current product prices.
 3. Create one pending order and its lines using the submitted address snapshot and current accepted prices.
 4. Deduct the ordered quantity of each product and record the linked order, stock, and status audit events.
@@ -107,7 +107,7 @@ Related requirements: FR-05, FR-12, FR-13, and FR-14.
 
 Exceptions: An invalid line, insufficient stock, unauthorized action, or known write failure will reject the entire order, without partial records, stock deductions, or successful audit events. Concurrent purchases cannot exceed the available stock.
 
-Postcondition: One pending order has been accepted, the accepted price and address have been retained, and the stock has been deducted once.
+Postcondition: A new accepted request creates one pending order, retains the accepted price and address, and deducts stock once. A replay returns the existing acceptance result without changing the order or stock; current order status remains available through RQ-01.
 
 ### UC-02 Prepare and Ship an Order
 
@@ -115,13 +115,15 @@ Actor/Trigger: Staff selects a pending order.
 Preconditions: Authorized staff account and an existing order.
 Related requirements: FR-07, FR-08, FR-10, FR-11, FR-12, FR-13, and FR-14.
 
+Step 1 is the preparation transaction. Steps 2–4 are a separate dispatch transaction. Each commits independently.
+
 1. The staff reviews the order lines and delivery information, and then marks the order as ready to ship. The transition and audit events are committed together.
 2. When the order is dispatched, staff provide the carrier and tracking details.
 3. The system rechecks that the order is ready to ship and has no shipments.
 4. The system creates the shipment, records the dispatch time, changes the order to "Shipped," logs audit events, and commits. No further stock deduction occurs.
 5. The customer can retrieve the shipment information. Any later tracking typos can be corrected under FR-11 as a separate audited operation.
 
-Exceptions: Rejection without changes occurs if there is missing tracking data, an invalid state, or an existing shipment. If a cancellation is committed first, the dispatch is rejected and the order remains canceled.
+Exceptions: Rejection without changes occurs if there is missing tracking data, an invalid state, or an existing shipment. If dispatch fails after preparation has committed, the order remains Ready to Ship and its readiness history is retained; the failed dispatch leaves no shipment, Shipped status change, or successful dispatch audit events. If a cancellation is committed first, the dispatch is rejected and the order remains canceled. An uncertain dispatch result follows BR-21.
 
 Postcondition: One shipment is linked to the shipped order, and its dispatch and status history are retained.
 
@@ -138,13 +140,13 @@ Related requirements: FR-09, FR-12, FR-13, and FR-14.
 
 Exceptions: An unauthorized user, missing reason, "Shipped/Cancelled" status, or a dispatch that was committed first will cause rejection. Repeated cancellations never restore stock twice.
 
-Postcondition: The order and lines are stored as canceled, the inventory is restored once, and the history remains readable.
+Postcondition: OrderHeader is marked Cancelled. Its OrderLine records remain unchanged as historical details, the inventory is restored once, and the history remains readable.
 
 ## 7. Data Requirements
 
 | Data Subject | Required Information and Relationship |
 | --- | --- |
-| UserAccount | Each account has a unique login and display name, as well as protected authentication information and an active state. An account may have zero or one customer profile. |
+| UserAccount | Each account has a unique login, a display name that need not be unique, one assigned role, protected authentication information, and an active state. A customer-role account has exactly one customer profile; staff and administrator accounts have none. |
 | Role | There are three fixed role codes and their meanings. One role can belong to multiple accounts, but each account has only one role. |
 | Customer | Name and contact email. Each customer belongs to exactly one customer account. A customer can have zero or more orders. |
 | Product | Each product has a unique code, name, current unit price, and active state. One product can appear on multiple order lines. |
@@ -153,7 +155,7 @@ Postcondition: The order and lines are stored as canceled, the inventory is rest
 | OrderLine | Parent order, line number, product, quantity, and accepted unit price. Each line belongs to one order and one product. |
 | OrderStatus | Fixed Pending, Ready to Ship, Shipped, and Cancelled codes and meanings; each order has one current status. |
 | Shipment | Parent order, carrier, tracking number, and dispatch time. Each shipment belongs to one order, and each order has either zero or one shipment. |
-| AuditLog | The required fields are actor, event type, time, affected record, context reference, previous/new values, and reason. Stock adjustments also retain their unique adjustment reference. Order events link back to their respective orders. |
+| AuditLog | Each event has a unique audit identifier, actor, event type, time, affected entity and record identifier, and context reference. Previous/new values are retained where meaningful, and reasons are required for the events specified in Section 9.2. Stock adjustments also retain their adjustment reference, unique within the initiating staff account under BR-16. Order events link back to their respective orders. |
 
 An accepted order has at least one line. The OrderLine entity resolves the many-to-many relationship between orders and products. It is a weak entity identified by its parent order and a line number that is meaningful only within that order. The Account/Customer and Product/Inventory entities provide one-to-one relationships, while the Customer/Order entity provides a one-to-many relationship.
 
@@ -171,7 +173,7 @@ Required delivery data: recipient, street address, city/locality, postal code, a
 | BR-04 | A new order requires active products and sufficient stock. The system uses the current prices of the products at the time of acceptance to calculate totals, and client-supplied values cannot override them. |
 | BR-05 | Prices are positive amounts in USD with a maximum of two decimal places. Line value is the quantity multiplied by the accepted unit price, and order value is the sum of the line values. Accepted prices are not affected by later product-price changes. |
 | BR-06 | Stock and low-stock thresholds are nonnegative whole numbers. New products start with a stock value of zero. Manual adjustments require a change of a non-zero whole number and a reason. They must not produce negative stock and must retain the before and after values. |
-| BR-07 | Order acceptance deducts stock once, and an eligible cancellation restores it. Corrections to the ready, shipping, and tracking statuses do not change stock. Available stock represents uncommitted, sellable units. |
+| BR-07 | Order acceptance deducts stock once, and an eligible cancellation restores it. Marking an order Ready to Ship, dispatching it, and correcting carrier/tracking details do not change stock. Available stock represents the quantity available for new orders after accepted, non-cancelled orders have been accounted for. It is not a separate physical on-hand count or reserved inventory balance. |
 | BR-08 | Acceptance is all-or-nothing across all product lines, stock changes, and required audit events. If one product is unavailable, the entire order is rejected. |
 | BR-09 | Only the following lifecycle transitions are permitted: "Shipped" and "Cancelled" have no outgoing status transitions. Unknown values, skipped stages, and backward moves are rejected. |
 | BR-10 | A shipment requires a "Ready to Ship" order, non-blank carrier/tracking details, and no existing shipment. Each order can have only one shipment. |
@@ -180,12 +182,12 @@ Required delivery data: recipient, street address, city/locality, postal code, a
 | BR-13 | Staff can only correct the carrier and tracking information for a shipped order with a reason and the new values. The dispatch time and all other finalized order facts are immutable. |
 | BR-14 | Business users cannot delete orders, shipments, referenced accounts or products, or audit events. Deactivation prevents future access and purchases without canceling accepted orders or erasing history. |
 | BR-15 | Each modification operation is an atomic process that includes the necessary successful audit writes. This includes account/profile creation, product/inventory creation, adjustments, status changes, dispatch, and cancellation. A required audit failure causes a rollback. |
-| BR-16 | Order references uniquely identify orders. Submission references are unique to each customer, and adjustment references are unique to each staff account that initiates them. Reusing a committed submission or adjustment reference that has already been processed will not produce any new effects, even if its content differs. The authorized user can retrieve the existing result. A fully rolled-back request may be retried. |
+| BR-16 | Order references uniquely identify orders. Submission references are unique to each customer, and adjustment references are unique to each staff account that initiates them. After checking current authorization, reuse of a committed reference with the same request content shall return the original recorded result without new business changes or successful mutation audit events. Reuse with changed content shall be rejected as a reference conflict while preserving authorized access to the original result. Matching order content means the same products, quantities, and delivery details; matching adjustment content means the same product, quantity change, and reason. Later server-side price, stock, or status changes do not change the original request content or result. A fully rolled-back request may be retried. |
 | BR-17 | Concurrent actions must not result in overselling, losing stock changes, duplicating shipments, or dispatching and canceling an order. Any conflicting requests are rejected or safely reevaluated against the current state. |
 | BR-18 | The system records event times in UTC. Dispatch cannot precede acceptance or readiness. Date filters include the entire selected start and end date range, and the start date must not follow the end date. |
 | BR-19 | A product is considered to be in low stock when its available quantity is at or below its configured threshold. |
 | BR-20 | Sales are calculated from accepted line prices and represent the value of shipped merchandise, grouped by dispatch month. Only include shipped orders and count each order once. The totals represent merchandise value only. |
-| BR-21 | Only show success after the commit is confirmed. If the connection is lost, the outcome is unconfirmed until the saved reference, status, and history are checked. Only retry using the original reference after the prior attempt is resolved. An unresolved attempt must not start a duplicate operation. |
+| BR-21 | Only show success after the commit is confirmed. After connection loss, distinguish a committed result, a confirmed failed/rolled-back attempt, and an unresolved attempt. A single not-found lookup does not prove failure. Resolve the earlier attempt using its original reference, status, and history. Any retry shall use the original reference; the backend shall resolve or safely serialize against an earlier in-flight attempt before applying new changes. An unresolved attempt must not start a duplicate operation. |
 
 | Current state | Action and next state | Role and condition |
 | --- | --- | --- |
@@ -207,11 +209,11 @@ Required delivery data: recipient, street address, city/locality, postal code, a
 | SEC-04 | Only store application passwords as salted password hashes using an established password-handling library. Never store plaintext or reversibly encrypted passwords. Keep secrets out of source code, reports, and logs. Protect authentication sessions, and use encrypted connections for non-local access. |
 | SEC-05 | Runtime business roles, including the administrator role, cannot alter or delete existing audit records or bypass finalized-record rules. Keep unrestricted build credentials separate from runtime access. |
 | SEC-06 | Safely record failed sign-ins, denied protected operations, and failed critical transactions. Return useful error messages without revealing SQL internals, secrets, or another user's data. |
-| SEC-07 | User-supplied input should be treated as data. It should not change the structure of database commands, bypass sign-in, or expand access. Validate inputs against business rules, and apply the same checks to direct requests as to forms. |
+| SEC-07 | User-supplied input shall be treated as data. It shall not change the structure of database commands, bypass sign-in, or expand access. Validate inputs against business rules, and apply the same checks to direct requests as to forms. |
 
 ### 9.2 Audit Requirements
 
-Track audit account/profile creation and updates, activation/deactivation, product creation, price/status/threshold changes, manual stock adjustments, order acceptance and deductions, readiness, cancellations and restorations, dispatch, and tracking corrections.
+Audit account/profile creation and updates, activation/deactivation, product creation, price/status/threshold changes, manual stock adjustments, order acceptance and deductions, readiness, cancellations and restorations, dispatch, and tracking corrections.
 
 Each successful event retains the identified actor, UTC timestamp, event type, affected record, shared transaction/context reference, and meaningful prior and new values. Reasons are required for adjustments, cancellations, and tracking corrections. Linked events allow reconstruction of an order's lifecycle and stock effects.
 
@@ -227,17 +229,17 @@ Successful audit events are committed with their business transactions. A requir
 | Database unavailable | Report the temporary unavailability of database-dependent operations. Preserve authorization, and do not confirm unsaved changes or present unavailable data as empty results. |
 | Primary storage lost or corrupt | Restore the last verified backup and use its timestamp as the recovery point. Any changes made after that point may be lost. |
 
-Crash recovery requires persistent data and log storage that remains intact and honors durable writes. The TDD will specify the durability configuration.
+Crash recovery requires persistent data and log storage that remains intact and honors durable writes.
 
-Manual backups should include the schema, business data, and audit history with a timestamp, as well as a restricted copy on a separate device or service. Verify the contents, relationships, audit history, and access controls when restoring to a separate empty database.
+Manual backups shall include the schema, business data, and audit history with a timestamp, as well as a restricted copy on a separate device or service. Verify the contents, relationships, audit history, and access controls when restoring to a separate empty database.
 
 ## 10. Reports and Queries
 
-Reports should enforce role and ownership restrictions, display USD amounts to two decimal places, accommodate empty results, and reject date ranges for which the start date follows the end date.
+Reports shall enforce role and ownership restrictions, display USD amounts to two decimal places, accommodate empty results, and reject date ranges for which the start date follows the end date.
 
 | ID | Report and Audience | Required Output |
 | --- | --- | --- |
-| RQ-01 | Order List and Tracking; Customer: owned orders. Staff/Administrator: all orders. | The list includes the order reference, submission time, status, and merchandise value. Staff and administrators can also see the customer reference and name. There is an optional status filter. Sort by submission time in descending order, then by order reference in descending order. Look up by order reference to see lines in line number order, accepted prices, quantities, address, status timeline, and carrier, tracking, and dispatch time, if present. Customers can also use their original submission reference to check an uncertain result. The customer timeline omits the internal actor and reason fields. |
+| RQ-01 | Order List and Tracking; Customer: owned orders. Staff/Administrator: all orders. | The list includes the order reference, submission time, status, and merchandise value. Staff and administrators can also see the customer reference and name. There is an optional status filter. Sort by submission time in descending order, then by order reference in descending order. Look up by order reference to see lines in line number order, current product names, accepted prices, quantities, address, status timeline, and carrier, tracking, and dispatch time, if present. Customers can also use their original submission reference to check an uncertain result. The customer timeline omits the internal actor and reason fields. |
 | RQ-02 | Low-Stock Report; Staff/Administrator. | Include active product code/name, available quantity, and threshold. Include stock at or below the threshold. Sort by quantity in ascending order, then by code in ascending order. |
 | RQ-03 | Monthly Sales Summary; Administrator. | For the selected UTC dispatch date range, group by year/month. Show the distinct order count and the total value of shipped merchandise. Sort by month in ascending order. Exclude unshipped and canceled orders, counting each order and its value only once. If there are no matches, there will be no monthly rows, and the overall count and value will be zero. |
 | RQ-04 | Audit History Report; Administrator. | The affected record, the optional actor, and the optional UTC date range can all be used as filters. For an order, include related stock and shipment events. Show the event type, actor, time, context, and reason, if applicable, as well as the previous and new values. Sort by time, then by audit identifier in ascending order. |
@@ -249,14 +251,14 @@ Reports should enforce role and ownership restrictions, display USD amounts to t
 - One retailer has one inventory location. Prices and reports are in USD, and timestamps are in UTC.
 - Administrators set up accounts and customers place their own orders.
 - Shipment information is entered manually. The status is 'shipped' rather than 'confirmed delivery'.
-- The application has one backend, which is divided into separate functional responsibilities, and one MySQL database.
+- The application separates backend responsibilities and uses one MySQL database.
 
 ### 11.2 Project Constraints
 
 | ID | Constraint |
 | --- | --- |
 | C-01 | Use MySQL with fictional data. In the README and TDD, document the server/client versions, prerequisites and configuration. |
-| C-02 | Provide the FRD, TDD, ERD and schema scripts, as well as the repository build/initialisation script. Maintain Markdown documentation for each diagram, including the .drawio source, .svg export and explanatory Markdown under the 'docs' folder. The data model should depict the data requirements in Section 7 using meaningful entities, 3NF, one-to-one, one-to-many and many-to-many relationships, a weak entity, keys, cardinality and optionality. |
+| C-02 | Provide the FRD, TDD, ERD and schema scripts, as well as the repository build/initialisation script. Maintain the FRD and TDD in repository Markdown. For each diagram, include the .drawio source, .svg export and explanatory Markdown under the 'docs' folder. The data model shall depict the data requirements in Section 7 using meaningful entities, 3NF, one-to-one, one-to-many and many-to-many relationships, a weak entity, keys, cardinality and optionality. |
 | C-03 | Build from a verified Git tag and record its commit SHA. Use the 'build/', 'database/', and 'docs/' directories, as well as an ordered manifest for schema, programmability, security, seed data, and validation. Provide a Bash or PowerShell build script. Check the tools, configuration, connectivity and manifest contents before making any changes to the database. Require explicit authorisation before replacing an existing database. Stop on script or validation failure. Record the tag, commit and timestamps, as well as the script results and errors, in file logs and, where permitted, in a build-log table. Keep credentials out of source code and logs. |
 | C-04 | Show the transactions that were successful and those that were not, as well as the key/relationship/uniqueness/null/domain constraints, role and ownership controls, audit history, the trigger that makes an update and transaction rollback. Include joins, updates, subqueries, aggregates and exception handling. Provide realistic sample data, justified indexes and denormalised reporting views, as well as EXPLAIN evidence. Address batch, read, update, delete, high transaction volume and large extract workloads in the TDD. |
 | C-05 | Provide a web interface that is connected to the backend and database. Document the system architecture, APIs, data flow, interface wireframes, security controls, encrypted connections and considerations for growth. |
@@ -268,23 +270,23 @@ Reports should enforce role and ownership restrictions, display USD amounts to t
 | ID | Related Requirements | Data and Controls | Expected Outcome |
 | --- | --- | --- | --- |
 | AC-01 | FR-01, FR-02; BR-01, BR-02; SEC-01, SEC-03 | UserAccount, Role, Customer; authentication and permissions | The creation of valid accounts/profiles and account updates are audited. Duplicate logins, invalid roles and incomplete required data are rejected. Invalid credentials, inactive accounts and signed-out sessions cannot perform protected actions, nor can unauthorised roles. Deactivation blocks the next protected request. |
-| AC-02 | FR-03, FR-04; BR-01, BR-05, BR-06, BR-14, BR-16 | Product, Inventory, AuditLog; validation and adjustment references | Products start with a stock level of zero; only active products appear in the customer catalogue. Valid stock adjustments retain the quantities and reasons for the adjustment before and after. Invalid prices, quantities, duplicate codes/references and adjustments that would make stock negative are rejected. Deactivation retains historical records, and staff can retrieve their own adjustment results. |
+| AC-02 | FR-03, FR-04; BR-01, BR-05, BR-06, BR-14, BR-16 | Product, Inventory, AuditLog; validation and adjustment references | Products start with a stock level of zero; only active products appear in the customer catalogue. Valid stock adjustments retain the quantities and reasons for the adjustment before and after. Invalid prices, quantities, duplicate product codes and adjustments that would make stock negative are rejected. Reusing a committed adjustment reference with matching content returns the original result without further stock changes or successful mutation audit events; changed content is rejected as a reference conflict. Deactivation retains historical records, and staff can retrieve their own adjustment results. |
 | AC-03 | FR-05; UC-01; BR-03 through BR-08, BR-12 | OrderHeader, OrderLine, Product, Inventory; accepted prices and atomic writes | Ordering two items worth \$20 and one item worth \$15 creates one pending order worth \$55 and reduces stock by the accepted quantities. Orders containing empty lines, repeated products, missing delivery data, invalid quantities, inactive products or insufficient stock will fail without partial changes. Accepted prices are taken from the catalogue and later price/profile changes do not affect the order. |
-| AC-04 | FR-06, FR-07; RQ-01; SEC-02, SEC-03 | Customer, OrderHeader, OrderLine, Shipment; ownership and scoped queries | Customers can retrieve their own order details, timeline and tracking information. Altered identifiers do not expose the records or internal audit details of other customers. Staff can retrieve orders by reference and status. The returned fields and ordering match RQ-01. |
-| AC-05 | FR-08, FR-10, FR-11; UC-02; BR-09, BR-10, BR-12, BR-13 | OrderStatus, OrderHeader, Shipment, AuditLog; permitted transitions | 'Pending' can become 'Ready to Ship', and then 'Shipped', provided that there is one complete shipment and the stock remains unchanged. Invalid transitions, missing tracking data and duplicate shipments will fail. Tracking corrections retain the original reason and values; accepted order facts and dispatch time remain unchanged. |
-| AC-06 | FR-09; UC-03; BR-07, BR-11 | OrderHeader, OrderLine, Inventory, AuditLog; cancellation transaction | Cancelling a pending or ready-to-ship order and providing a reason restores the stock for each line and retains the order/history. Repeated cancellations, cancellations without a reason, unauthorised users and cancellations after shipment do not result in any changes. |
+| AC-04 | FR-06, FR-07; RQ-01; SEC-02, SEC-03 | Customer, OrderHeader, OrderLine, Shipment; ownership and scoped queries | Customers can retrieve their own order details, timeline and tracking information. Altered identifiers do not expose the records or internal audit details of other customers. Staff can retrieve orders by reference and status. The returned fields and ordering match RQ-01. After a product is renamed, existing orders display its current name; accepted prices and quantities remain unchanged. |
+| AC-05 | FR-08, FR-10, FR-11; UC-02; BR-09, BR-10, BR-12, BR-13 | OrderStatus, OrderHeader, Shipment, AuditLog; permitted transitions | 'Pending' can become 'Ready to Ship', and then 'Shipped', provided that there is one complete shipment and the stock remains unchanged. Invalid transitions, missing tracking data and duplicate shipments will fail. If dispatch fails after readiness has committed, readiness and its history remain, with no shipment, Shipped status change or successful audit events from the failed dispatch; a separately committed cancellation remains canceled. Tracking corrections retain the original reason and values; accepted order facts and dispatch time remain unchanged. |
+| AC-06 | FR-09; UC-03; BR-07, BR-11 | OrderHeader, OrderLine, Inventory, AuditLog; cancellation transaction | Cancelling a pending or ready-to-ship order and providing a reason restores the stock for each line, marks only OrderHeader as Cancelled, and retains unchanged OrderLine records and history. Repeated cancellations, cancellations without a reason, unauthorised users and cancellations after shipment do not result in any changes. |
 | AC-07 | FR-12, FR-14; BR-08, BR-15; SEC-06 | Business records and AuditLog; transaction boundaries | Controlled failure during a multi-record operation, required audit-write failure and session termination before committing each leave behind no partial business changes or successful audit events. Failure logs distinguish between failure and success and contain no secrets. |
-| AC-08 | FR-13; BR-16, BR-17 | Inventory, OrderHeader, Shipment; duplicate and concurrency controls | Reusing a submission/adjustment reference that has already been committed does not have any repeated effects. Two orders competing for the last unit result in one order being successful and the stock being reduced to zero. Concurrent stock updates do not lose any committed changes. Competing dispatch or cancellation requests produce one valid outcome. |
+| AC-08 | FR-13; BR-16, BR-17 | Inventory, OrderHeader, Shipment; duplicate and concurrency controls | Reusing a committed submission/adjustment reference with matching content returns the original result without repeated business effects or successful mutation audit events. Changed content produces a reference conflict while the original result remains accessible to its authorized owner. Different customers or staff accounts may independently use the same reference without gaining access to each other's results. Two orders competing for the last unit result in one order being successful and the stock being reduced to zero. Concurrent stock updates do not lose any committed changes. Competing dispatch or cancellation requests produce one valid outcome. |
 | AC-09 | FR-14, FR-15; BR-14, BR-15, BR-18; SEC-05, SEC-06; RQ-04 | AuditLog and affected records; protected history | Events relating to accounts, products, stock and orders retain the required information about the actor, time, context, reasons and prior/new values. An administrator can reconstruct an order's lifecycle and the effect on stock. Attempts to alter or delete audit history or protected finalised records at runtime fail. RQ-04 filters return matching events. |
 | AC-10 | FR-16, FR-17; BR-18 through BR-20; RQ-01 through RQ-04 | Product, Inventory, OrderHeader, OrderLine, Shipment; report calculations | With a threshold of 3, stock quantities of 2 and 3 appear as 'low stock'; quantity 4 does not. Shipped orders worth \$55 and \$40 in the selected month count as 2 and have a value of \$95. Unshipped and cancelled orders are excluded. Report fields, date boundaries, ordering and empty results match those in Section 10; invalid date ranges are rejected. |
 | AC-11 | FR-18; SEC-01 through SEC-07; C-05 | Web interface, backend, credentials, and sessions | Each role can complete its authorised workflows and reports, with clear confirmation or error messages. The same permissions and validation apply to forms and direct requests. SQL-like input cannot alter the behaviour or access of commands. Credentials, sessions and non-local connections comply with SEC-04. |
-| AC-12 | FR-19, FR-20; BR-15 through BR-17, BR-21; Section 9.3 | Persistent business/audit data; recovery and result lookup | After a controlled, abrupt stop and restart of the database, committed records and audits remain, and uncommitted effects are absent. During an outage, the interface reports unavailability. A lost commit response can be resolved by referring to the original record; checking or retrying will not result in duplicate stock, orders or shipments. |
+| AC-12 | FR-19, FR-20; BR-15 through BR-17, BR-21; Section 9.3 | Persistent business/audit data; recovery and result lookup | After a controlled, abrupt stop and restart of the database, committed records and audits remain, and uncommitted effects are absent. During an outage, the interface reports unavailability. A lost commit response can be resolved by referring to the original record; a single not-found result does not prove failure. The system distinguishes committed, confirmed failed/rolled-back and unresolved attempts, and checking or retrying with the original reference will not result in duplicate stock, orders or shipments. |
 | AC-13 | FR-21; Section 9.3 | Protected backup and restored database | A consistent backup includes a timestamp and a restricted copy stored separately. The restoration process recreates the backed-up records, relationships, audit history and access controls in an empty database. The recovery point matches the backup. |
 | AC-14 | C-01 through C-03 | Repository, manifest, build script, schema, and logs | The README instructions explain how to reproduce the database from a selected Git tag, including the recorded commit, required objects, seed data and passing validation. Missing prerequisites/files, repository/tag retrieval failure, tag mismatch, connection failure, empty/invalid/misordered manifests and script/validation failures will stop the build, providing useful logs. Existing databases are protected from unauthorised replacement and logs contain no sensitive information. |
 | AC-15 | C-02, C-04, C-05 | ERD, TDD, schema objects, queries, and interface | The deliverables demonstrate the 3NF, the required relationship types and weak entity, the enforced constraints, the update trigger and the required SQL operations. Reproducible query data, index rationale and EXPLAIN evidence support performance analysis. The architecture, API/data flow, wireframes and security documentation match the implemented system. |
 
 ### 12.2 Traceability and Change Impact
 
-The TDD should map the significant requirements and acceptance criteria to schema objects, enforcement methods, test scripts and demonstration evidence. The test plan should detail positive, negative, boundary and exception cases, including setup, executed actions or SQL, expected and actual results, and pass/fail evidence.
+The TDD shall map the significant requirements and acceptance criteria to schema objects, enforcement methods, test scripts and demonstration evidence. The test plan shall split grouped acceptance criteria into individual positive, negative, boundary and exception cases, including setup, executed actions or SQL, expected and actual results, and pass/fail evidence.
 
 If a requirement changes, all linked rules, workflows, data, permissions, reports, implementation and tests must be reviewed and updated. Any affected tests must be repeated, and schema or build changes require fresh-build validation. All changes and verification results must be recorded in version control.

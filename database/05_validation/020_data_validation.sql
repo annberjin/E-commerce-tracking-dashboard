@@ -1,0 +1,15 @@
+DELIMITER $$
+CREATE PROCEDURE sp_validate_data()
+BEGIN
+IF (SELECT COUNT(*) FROM Role)<>3 OR (SELECT COUNT(*) FROM OrderStatus)<>4 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='validation:lookups'; END IF;
+IF (SELECT COUNT(*) FROM UserAccount)<>5 OR (SELECT COUNT(*) FROM Customer)<>2 OR (SELECT COUNT(*) FROM Product)<>3 OR (SELECT COUNT(*) FROM OrderHeader)<>2 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='validation:seed_counts'; END IF;
+IF EXISTS(SELECT 1 FROM UserAccount u LEFT JOIN Customer c ON c.CustomerID=u.AccountID WHERE (u.RoleCode='CUSTOMER' AND c.CustomerID IS NULL) OR (u.RoleCode<>'CUSTOMER' AND c.CustomerID IS NOT NULL)) THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='validation:profile'; END IF;
+IF EXISTS(SELECT 1 FROM Product p WHERE NOT EXISTS(SELECT 1 FROM Inventory i WHERE i.ProductID=p.ProductID)) THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='validation:inventory'; END IF;
+IF EXISTS(SELECT 1 FROM OrderHeader h WHERE NOT EXISTS(SELECT 1 FROM OrderLine l WHERE l.OrderID=h.OrderID)) THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='validation:order_lines'; END IF;
+IF EXISTS(SELECT 1 FROM OrderHeader h LEFT JOIN Shipment s ON s.OrderID=h.OrderID WHERE (h.StatusCode='SHIPPED' AND s.OrderID IS NULL) OR (h.StatusCode<>'SHIPPED' AND s.OrderID IS NOT NULL)) THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='validation:shipment_status'; END IF;
+IF EXISTS(SELECT 1 FROM OrderHeader h WHERE NOT EXISTS(SELECT 1 FROM AuditLog a WHERE a.OrderID=h.OrderID AND a.EventType='ORDER_ACCEPTED')) THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='validation:audit'; END IF;
+END$$
+DELIMITER ;
+CALL sp_validate_data();
+DROP PROCEDURE sp_validate_data;
+SELECT 'Data validation passed' AS Result;

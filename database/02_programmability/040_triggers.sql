@@ -1,0 +1,11 @@
+DELIMITER $$
+CREATE DEFINER='{{DEFINER}}'@'localhost' TRIGGER trg_shipment_after_insert
+AFTER INSERT ON Shipment FOR EACH ROW
+BEGIN
+ UPDATE OrderHeader SET StatusCode='SHIPPED'
+ WHERE OrderID=NEW.OrderID AND StatusCode='READY_TO_SHIP';
+ IF ROW_COUNT()<>1 THEN
+  SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='conflict:shipment_status';
+ END IF;
+END$$
+DELIMITER ;
